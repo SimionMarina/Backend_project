@@ -14,13 +14,9 @@ let UserSchema = new Schema({
         required:[true,"Must provide a password"],
         minlength:[2, "Password must have more than 2 chars"]
     },
-    firstName: {
+    fullName: {
         type:String,
-        required:[true,"Must provide a first name"]
-    },
-    lastName: {
-        type:String,
-        required:[true,"Must provide a last name"]
+        required:[true,"Must provide your name"]
     },
     birthDate: { 
         type:Date,

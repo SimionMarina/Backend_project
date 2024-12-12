@@ -13,22 +13,53 @@ exports.createUser = function (req, res, next) {
       res.json({ err: err });
     });
 };
-exports.loginUser = function (req, res, next) {
-  let loginInfo = req.body;
-  UserModel.find({ email: loginInfo.email }).then((data) => {
-    if (data[0].password) {
-      if (utils.auth(loginInfo.password, data[0].password)) {
-        res.json({ status: utils.signToken(data[0]._id) });
-      } else {
-        res.json({ status: "Loggin failed!" });
-      }
-    } else {
-      res.json({ error: "Something went wrong!" });
+exports.loginUser = async function (req, res) {
+  const { email, password } = req.body;
+  try {
+    //Check if user exists
+    const user = await UserModel.findOne({ email });
+    if (!user) {
+      return res
+        .status(404)
+        .json({ status: "error", message: "User not found." });
     }
-  });
+
+    // Verify password
+    const isPasswordValid = utils.auth(password, user.password);
+    if (!isPasswordValid) {
+      return res
+        .status(401)
+        .json({ status: "error", message: "Invalid credentials." });
+    }
+
+    // Generate token
+    const token = utils.signToken(user._id);
+
+    return res.status(200).json({ token, userId: user._id });
+  } catch (error) {
+    console.error("Error during login:", error.message);
+    return res
+      .status(500)
+      .json({ status: "error", message: "Internal server error." });
+  }
 };
+
 exports.getUserbyID = function (req, res, next) {
   res.json({ data: req.user, error: req.error });
+};
+exports.getUserData = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const user = await UserModel.findById(userId).select("-password");
+    if (!user) return res.status(404).json({ error: "User not found." });
+
+    res.json({ user });
+  } catch (err) {
+    console.log(err);
+    res
+      .status(500)
+      .json({ error: "An error occurred while fetching user data." });
+  }
 };
 exports.getAllUsers = function (req, res, next) {
   if (req.user && !req.error) {
@@ -37,53 +68,55 @@ exports.getAllUsers = function (req, res, next) {
     });
   }
 };
-exports.deleteUser = function (req, res, next){
+exports.deleteUser = function (req, res, next) {
   let id = req.params.id;
   UserModel.findByIdAndDelete(id)
-  .then((data) =>{
-    res.status(201).json({message:"User deleted", data:data});
-  })
-  .catch((error) =>{
-    res.json({error: error});
-  });
-}
-exports.updateUser = function (req, res, next){
+    .then((data) => {
+      res.status(201).json({ message: "User deleted", data: data });
+    })
+    .catch((error) => {
+      res.json({ error: error });
+    });
+};
+exports.updateUser = function (req, res, next) {
   let id = req.params.id;
-  UserModel.findByIdAndUpdate(id, req.body,{
+  UserModel.findByIdAndUpdate(id, req.body, {
     new: true,
     runValidators: true,
   })
-  .then((data) => {
-    res.json({ data: data });
-  })
-  .catch((error) => {
-    res.json({ error: error });
-  });
-}
-exports.verifyToken = function (req, res, next) {
-  let token = "";
-  if (req.headers.authorization) {
+    .then((data) => {
+      res.json({ data: data });
+    })
+    .catch((error) => {
+      res.json({ error: error });
+    });
+};
+exports.verifyToken = async function (req, res, next) {
+ 
     token = req.headers.authorization;
-    let decodedToken = utils.decodeToken(token);
-    if (decodedToken) {
-      let userId = decodedToken.id;
-      UserModel.findById(userId)
-        .then((data) => {
-          req.user = data;
-          next();
-        })
-        .catch((err) => {
-          req.error = "User cannot be found";
-          next();
-        });
-    } else {
-      req.error = "Token cannot be decoded";
-      next();
+    if(!token){
+      return res.status(401).json({ error: "No token supplied" });
     }
-  } else {
-    req.error = "No token supplied";
-    next();
-  }
+
+    try {
+      // Verify the token
+      const decodedToken = utils.decodeToken(token);
+
+      if (decodedToken) {
+        // Fetch the user from the database
+        const user = await UserModel.findById(decodedToken.id);
+
+        if (!user) {
+          return res.status(404).json({ error: "User not found" });
+        }
+    
+        // Send user data back to the client
+        res.status(200).json({ user });
+      } 
+    }catch (error) {
+      console.error("Error verifying token:", error);
+      res.status(401).json({ error: "Invalid or expired token" });
+    }
 };
 exports.isAdmin = function (req, res, next) {
   console.log(req.user);
@@ -119,18 +152,20 @@ exports.forgotPassword = async function (req, res, next) {
     res.json({ error: "Email cound not be sent!" });
   }
 };
-exports.resetPassword = async function(req,res,next){
+exports.resetPassword = async function (req, res, next) {
   let token = req.params.token;
-  if(utils.verifyToken(token)){
-    let user = await UserModel.findOne({passwordChangeToken:token});
-    if(!user){
-      res.json({error:"User does not exist or has not requested password change"});
+  if (utils.verifyToken(token)) {
+    let user = await UserModel.findOne({ passwordChangeToken: token });
+    if (!user) {
+      res.json({
+        error: "User does not exist or has not requested password change",
+      });
       return;
     }
     user.password = req.body.password;
     user.passwordChangeToken = undefined;
     await user.save();
     let newToken = utils.signToken(user._id);
-    res.json({status: newToken});
+    res.json({ status: newToken });
   }
-}
+};
